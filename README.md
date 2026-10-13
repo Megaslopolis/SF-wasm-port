@@ -4,6 +4,9 @@ An unofficial Windows PC runtime for the NTSC-U 1.1 release of *Syphon Filter*
 (`SCUS-94240`). The project combines the original PlayStation gameplay code with
 a native Windows host for rendering, input, menus, audio and FMV playback.
 
+The experimental WebAssembly port has a separate
+[browser build guide](apps/sf_wasm_shell/README.md).
+
 > This repository does not contain the game or a disc image. A legally obtained
 > BIN/CUE image of the supported release is required. The project is not
 > affiliated with or endorsed by Sony Interactive Entertainment.

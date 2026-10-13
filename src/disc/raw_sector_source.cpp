@@ -2,6 +2,7 @@
 
 #include "sf/core/error.hpp"
 
+#include <algorithm>
 #include <limits>
 #include <string>
 #include <system_error>

@@ -4,6 +4,10 @@
 #include "types.h"
 #include "PsyX/common/pgxp_defs.h"
 
+#ifndef __cplusplus
+#include <assert.h>
+#endif
+
 extern	int (*GPU_printf)(const char *fmt, ...);
 
 #define WAIT_TIME	0x800000

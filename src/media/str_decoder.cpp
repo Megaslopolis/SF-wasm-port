@@ -318,7 +318,10 @@ struct StrDecoder::Impl {
     std::optional<MovieEvent> next() {
         while (events.empty() && !finished) {
             const auto result = av_read_frame(format, packet);
-            if (result == AVERROR_EOF) {
+            // Some FFmpeg releases report the STR demuxer's short read at the end
+            // of the stream as EIO rather than EOF.
+            if (result == AVERROR_EOF ||
+                (result == AVERROR(EIO) && avio_feof(format->pb) != 0)) {
                 flush();
                 finished = true;
                 break;

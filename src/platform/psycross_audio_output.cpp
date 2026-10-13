@@ -9,6 +9,10 @@
 #include <SDL.h>
 #include <psx/libspu.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -55,12 +59,20 @@ bool psyCrossAudioDiagnosticsEnabled() noexcept {
     // log is bounded by presentation time rather than callback count and is
     // the only reliable way to distinguish guest under-production, host
     // scheduling stalls and device underruns after a long play session.
+#ifdef __EMSCRIPTEN__
+    // The browser has no environment to opt in; keep its console quiet.
+    return false;
+#else
     return value == nullptr || value[0] == '\0' || std::strcmp(value, "0") != 0;
+#endif
   }();
   return enabled;
 }
 
 bool callbackBufferRequested() noexcept {
+#ifdef __EMSCRIPTEN__
+  return false;
+#else
   static const auto requested = [] {
     const auto *value = SDL_getenv("SF_OPENAL_CALLBACK_BUFFER");
     // OpenAL Soft's callback buffer is the primary continuous sink. It keeps
@@ -71,6 +83,7 @@ bool callbackBufferRequested() noexcept {
     return value == nullptr || value[0] == '\0' || std::strcmp(value, "0") != 0;
   }();
   return requested;
+#endif
 }
 
 PsyCrossAudioContext::PsyCrossAudioContext() {
@@ -88,6 +101,11 @@ PsyCrossAudioContext::PsyCrossAudioContext() {
     }
   }
   ++context_references;
+#ifdef __EMSCRIPTEN__
+  // WebAudio schedules on the browser thread. Cover a brief emulation/render
+  // stall with already attached buffers rather than a 100 ms scheduling window.
+  EM_ASM({ AL.QUEUE_LOOKAHEAD = 0.5; });
+#endif
 }
 
 PsyCrossAudioContext::~PsyCrossAudioContext() {
@@ -137,7 +155,7 @@ PsyCrossAudioOutput::PsyCrossAudioOutput(std::size_t minimum_start_buffers,
     if (stream_kind_ == PsyCrossAudioStreamKind::continuous &&
         callbackBufferRequested() &&
         alIsExtensionPresent("AL_SOFT_callback_buffer") == AL_TRUE) {
-      buffer_callback_ = reinterpret_cast<LPALBUFFERCALLBACKSOFT>(
+      buffer_callback_ = reinterpret_cast<BufferCallback>(
           alGetProcAddress("alBufferCallbackSOFT"));
       if (buffer_callback_ != nullptr) {
         alGenBuffers(1, &callback_buffer_);
@@ -219,6 +237,14 @@ PsyCrossAudioOutput::~PsyCrossAudioOutput() {
 }
 
 void PsyCrossAudioOutput::queue(std::span<const psx::SpuPcmFrame> frames) {
+#ifdef __EMSCRIPTEN__
+  // Pause keeps the guest SPU running, but its inaudible PCM must not build
+  // a delayed playback timeline while the browser processes the pause UI.
+  if (stream_kind_ == PsyCrossAudioStreamKind::continuous &&
+      gain_policy_.targetPercent() == 0U) {
+    return;
+  }
+#endif
   if (frames.empty()) {
     return;
   }
@@ -268,7 +294,13 @@ void PsyCrossAudioOutput::flush() {
     return;
   }
   collectProcessed();
+#ifdef __EMSCRIPTEN__
+  // A continuous producer flushes every retail audio slice (~8 ms). Keep its
+  // partial block staged so the browser queue retains the longer block size.
+  uploadReadyBuffers(stream_kind_ == PsyCrossAudioStreamKind::one_shot);
+#else
   uploadReadyBuffers(true);
+#endif
   applyGainStep();
   startIfNeeded();
 }
@@ -367,7 +399,7 @@ void PsyCrossAudioOutput::update() {
   startIfNeeded();
 }
 
-ALsizei AL_APIENTRY PsyCrossAudioOutput::streamCallback(
+ALsizei SF_AL_APIENTRY PsyCrossAudioOutput::streamCallback(
     ALvoid *user, ALvoid *samples, ALsizei byte_count) noexcept {
   if (user == nullptr) {
     return 0;
@@ -427,9 +459,23 @@ ALsizei PsyCrossAudioOutput::fillStream(ALvoid *samples,
 }
 
 void PsyCrossAudioOutput::setGainPercent(std::uint8_t percent) {
+#ifdef __EMSCRIPTEN__
+  if (stream_kind_ == PsyCrossAudioStreamKind::continuous && percent == 0U &&
+      gain_policy_.targetPercent() != 0U) {
+    reset("browser-mute");
+  }
+#endif
   gain_policy_.setTargetPercent(percent);
   applyGainStep();
 }
+
+#ifdef __EMSCRIPTEN__
+double PsyCrossAudioOutput::playbackClockSeconds() const noexcept {
+  return EM_ASM_DOUBLE({
+    return AL.currentCtx ? AL.currentCtx.audioCtx.currentTime : 0;
+  });
+}
+#endif
 
 void PsyCrossAudioOutput::logDiagnostics(
     std::string_view context) const noexcept {

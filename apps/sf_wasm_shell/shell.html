@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>Syphon Filter</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { color-scheme: dark; --fg: #e0e0e0; --dim: #8f8f8f; --line: #2a2a2a; --edge: #4a4a4a; --err: #e0786e; --warn: #d4b062; --h: 2.5rem; }
+  * { box-sizing: border-box; }
+  html { font-size: clamp(15px, 0.5vw + 12px, 19px); }
+  html, body { height: 100%; }
+  body { margin: 0; display: flex; flex-direction: column; background: #000; color: var(--fg); font: 1rem/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; overflow: hidden; -webkit-font-smoothing: antialiased; }
+  button, input, label { font: inherit; }
+
+  /* The stage fills the viewport above the menu; the canvas is the largest 16:9 box that fits. */
+  #stage { flex: 1 1 0; min-height: 0; display: grid; place-items: center; container-type: size; }
+  #canvas { display: block; width: min(100cqw, 100cqh * 16 / 9); aspect-ratio: 16 / 9; height: auto; outline: 0; }
+  body:not(.started) #canvas { outline: 1px solid #161616; outline-offset: -1px; }
+
+  #menu { flex: none; max-height: 50vh; overflow: auto; background: #000; border-top: 1px solid var(--line); padding: 0.9rem clamp(1rem, 4vw, 3rem) 0.7rem; }
+  #menu > * { max-width: 46rem; margin-inline: auto; }
+
+  section { display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+  h2 { margin: 0; font-size: 0.75rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .row { position: relative; display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+  /* One control size for every button and file chooser. */
+  button, .choose { height: var(--h); width: 8.5rem; padding: 0 0.75rem; display: inline-flex; align-items: center; justify-content: center; border: 1px solid var(--edge); border-radius: 0; background: #000; color: var(--fg); cursor: pointer; white-space: nowrap; }
+  button:hover:not(:disabled), .choose:hover { border-color: #aaa; }
+  button.primary { background: var(--fg); color: #000; border-color: var(--fg); }
+  button.primary:hover:not(:disabled) { background: #fff; border-color: #fff; }
+  button:disabled, input:disabled + .choose { opacity: .4; cursor: default; pointer-events: none; }
+  input[type=file] { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  input:focus-visible + .choose, button:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  .fname { flex: 1; min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0.1rem 0.6rem; align-content: center; font-size: 0.8125rem; line-height: 1.3; color: var(--dim); }
+  .fname b { font-weight: 600; letter-spacing: .08em; }
+  .fname span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fname .set { color: var(--fg); }
+  progress { position: absolute; left: 0; right: 0; bottom: -0.4rem; width: 100%; height: 2px; accent-color: var(--fg); }
+
+  dialog { width: min(46rem, calc(100vw - 2rem)); max-height: calc(100vh - 2rem); padding: 1.5rem; border: 1px solid var(--edge); border-radius: 0; background: #000; color: var(--fg); overflow: auto; }
+  dialog::backdrop { background: rgba(0, 0, 0, .8); }
+  dialog h2 { margin-bottom: 1rem; }
+  dialog h3 { margin: 1.25rem 0 0.4rem; font-size: 0.75rem; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  .ctl > div > h3:first-child { margin-top: 0; }
+  .ctl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 2.5rem; }
+  .ctl dl { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.25rem 0.75rem; margin: 0; font-size: 0.9375rem; }
+  .ctl dt { font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 0.8125rem; line-height: 1.6; }
+  .ctl dd { margin: 0; color: var(--dim); }
+  dialog .actions { margin-top: 1.5rem; }
+  #statusbar { margin-top: 0.6rem; padding-top: 0.4rem; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; font-size: 0.75rem; color: var(--dim); }
+  #sf-status { flex: 1; overflow-wrap: anywhere; }
+  #statusbar[data-phase=busy] #sf-status { color: var(--warn); }
+  #statusbar[data-phase=error] #sf-status { color: var(--err); }
+  #capture-status { flex: none; }
+  #capture-status:empty { display: none; }
+  #credits { flex: none; }
+  #credits a { color: inherit; text-decoration: none; }
+  #credits a:hover { color: var(--fg); text-decoration: underline; }
+  #credits a:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  @media (max-width: 40rem) {
+    .ctl { grid-template-columns: minmax(0, 1fr); }
+    .ctl > div + div > h3:first-child { margin-top: 1.25rem; }
+    #menu { max-height: 60vh; }
+    .row { flex-wrap: wrap; } .fname { flex-basis: 100%; order: 3; }
+    #statusbar { flex-direction: column; align-items: stretch; gap: 0; } #credits { align-self: flex-end; }
+  }
+</style>
+</head>
+<body>
+<div id="stage">
+  <canvas tabindex="0" id="canvas" width="1280" height="720" aria-label="Syphon Filter. Click during gameplay to capture the mouse; Escape pauses."></canvas>
+</div>
+
+<div id="menu" role="region" aria-label="Menu">
+  <section id="disc-panel" aria-labelledby="h-game">
+    <h2 id="h-game">Syphon Filter</h2>
+    <div class="row" id="pre-start">
+      <input type="file" id="files" accept=".cue,.CUE,.bin,.BIN" multiple disabled><label class="choose" for="files">Choose disc</label><div class="fname" id="files-name"></div>
+      <button id="boot" class="primary" type="button" disabled>Launch</button><button type="button" data-controls>Controls</button>
+      <progress id="load-progress" aria-label="Loading" hidden></progress>
+    </div>
+    <div class="row" id="in-session" hidden>
+      <button id="resume" type="button">Resume</button><button type="button" data-controls>Controls</button>
+    </div>
+  </section>
+  <div id="statusbar" data-phase="ready">
+    <span id="capture-status"></span>
+    <span id="sf-status" role="status" aria-live="polite">Loading…</span>
+    <span id="credits"><a href="https://github.com/Megaslopolis/SF-wasm-port" target="_blank" rel="noopener noreferrer">Source code</a> | Credits to <a href="https://github.com/Madxbio97/SF-pc-port" target="_blank" rel="noopener noreferrer">Madxbio97</a></span>
+  </div>
+</div>
+
+<dialog id="controls" aria-labelledby="h-controls">
+  <h2 id="h-controls">Controls</h2>
+  <div class="ctl">
+    <div>
+      <h3>Movement</h3>
+      <dl><dt>W / S</dt><dd>Move forward / backward</dd><dt>A / D</dt><dd>Turn left / right</dd><dt>Q / E</dt><dd>Strafe; peek while aiming</dd><dt>Left Shift</dt><dd>Run (with W)</dd><dt>Space</dt><dd>Roll</dd><dt>C</dt><dd>Crouch / stealth</dd><dt>Backspace</dt><dd>Quick turn</dd></dl>
+      <h3>System</h3>
+      <dl><dt>Esc</dt><dd>Pause; release mouse</dd><dt>Enter</dt><dd>Confirm title / briefing</dd><dt>F6</dt><dd>Frame counter</dd></dl>
+    </div>
+    <div>
+      <h3>Combat</h3>
+      <dl><dt>Left mouse</dt><dd>Fire</dd><dt>Right mouse</dt><dd>Aim (hold)</dd><dt>Tab</dt><dd>Target lock (hold to keep)</dd><dt>R</dt><dd>Reload</dd><dt>F</dt><dd>Action / interact</dd></dl>
+      <h3>Weapons</h3>
+      <dl><dt>Wheel</dt><dd>Weapon menu</dd><dt>[ / ]</dt><dd>Previous / next weapon</dd><dt>Middle mouse</dt><dd>Quick weapon switch</dd><dt>1–9, 0</dt><dd>Weapon slots 1–10</dd></dl>
+      <h3>Menus</h3>
+      <dl><dt>W A S D</dt><dd>Move</dd><dt>F</dt><dd>Select</dd><dt>Esc</dt><dd>Back</dd></dl>
+    </div>
+  </div>
+  <div class="actions"><button id="controls-close" type="button" class="primary">Close</button></div>
+</dialog>
+
+<script>
+  var sfOpenedFromDisk = window.location.protocol === 'file:';
+  var sfRuntimeReady = false;
+  // Called from native code as well; keep the global name and (message, phase) shape.
+  function sfSetStatus(message, phase) {
+    document.getElementById('sf-status').textContent = message;
+    if (phase) { document.getElementById('statusbar').dataset.phase = phase; }
+    // A native error after launch must bring the menu back so the message is visible.
+    window.sfFailed = phase === 'error' ? true : (phase ? false : window.sfFailed);
+    if (window.Module && Module['sfPointer']) { Module['sfPointer'].syncMenu(); }
+  }
+  function sfRuntimeFailure(reason) {
+    if (sfOpenedFromDisk) { return; }
+    sfSetStatus('Failed to load. See console.', 'error');
+    document.querySelectorAll('#menu input, #menu button').forEach(function (control) { control.disabled = true; });
+    if (Module && Module['sfPointer']) { Module['sfPointer'].setScene(false, false); }
+    document.getElementById('menu').hidden = false;
+  }
+  if (sfOpenedFromDisk) {
+    sfSetStatus('Serve this folder over HTTP; file:// does not work.', 'error');
+  }
+  window.addEventListener('error', function (event) {
+    if (!sfRuntimeReady) { sfRuntimeFailure(event.message || 'Could not download the runtime script'); }
+  }, true);
+  window.addEventListener('unhandledrejection', function (event) {
+    if (!sfRuntimeReady) { sfRuntimeFailure(event.reason); }
+  });
+
+  var Module = {
+    noInitialRun: sfOpenedFromDisk,
+    canvas: document.getElementById('canvas'),
+    print: function (text) { console.log(text); },
+    printErr: function (text) { console.error(text); },
+    onAbort: sfRuntimeFailure,
+    onRuntimeInitialized: function () {
+      if (sfOpenedFromDisk) { return; }
+      sfRuntimeReady = true;
+      var $ = function (id) { return document.getElementById(id); };
+      var canvas = Module.canvas;
+      var menu = $('menu'), captureStatus = $('capture-status');
+      var started = false, busy = false;
+      var stagedFiles = [];
+      var progress = $('load-progress');
+
+      // The menu exists only before the game starts, while it is paused, or after a failure.
+      function syncMenu() {
+        var failed = !!window.sfFailed;
+        var show = !started || failed || pointer.titleMenu || (pointer.sceneActive && pointer.paused);
+        menu.hidden = !show;
+        document.body.classList.toggle('started', started);
+        $('pre-start').hidden = started;
+        $('in-session').hidden = !started;
+        $('resume').hidden = failed;
+        if (started && !show) { canvas.focus(); }
+      }
+
+      var pointer = Module['sfPointer'] = {
+        syncMenu: syncMenu, titleMenu: false, sceneActive: false, paused: false, pauseRequested: false, resumeRequested: false,
+        locked: false, requesting: false, unlockedAt: -Infinity,
+        setScene: function (active, paused) {
+          var changed = this.sceneActive !== active || this.paused !== paused;
+          this.sceneActive = active;
+          if (active) { this.titleMenu = false; }
+          this.paused = paused;
+          if (changed && (!active || paused) && document.pointerLockElement === canvas) { document.exitPointerLock(); }
+          if (changed) { this.updateHint(); syncMenu(); }
+        },
+        updateHint: function () {
+          var locked = document.pointerLockElement === canvas;
+          captureStatus.textContent = !this.sceneActive ? '' : locked ? 'Esc pauses' :
+            this.paused ? 'Paused' : 'Click to capture mouse';
+        },
+        clearMouse: function () {
+          [0, 1, 2].forEach(function (button) { canvas.dispatchEvent(new MouseEvent('mouseup', {button: button, buttons: 0, bubbles: true})); });
+        },
+        lostFocus: function () {
+          if (this.sceneActive && !this.paused) { this.pauseRequested = true; }
+          this.clearMouse();
+          if (document.pointerLockElement === canvas) { document.exitPointerLock(); }
+        },
+        toggleTitleMenu: function () { this.titleMenu = !this.titleMenu; syncMenu(); },
+        // Chrome refuses a lock requested soon after Esc released it, and a refused request
+        // spends the click's activation. Wait out the cooldown first so one click is enough.
+        request: function () {
+          if (!this.sceneActive || this.requesting || document.pointerLockElement === canvas) { return; }
+          if (!canvas.requestPointerLock) { captureStatus.textContent = 'Mouse capture unavailable.'; return; }
+          canvas.focus();
+          this.requesting = true;
+          var wait = Math.max(0, 1300 - (performance.now() - this.unlockedAt));
+          setTimeout(function () {
+            try { var result = canvas.requestPointerLock(); if (result && result.catch) { result.catch(function (error) { pointer.declined(error); }); } } catch (error) { pointer.declined(error); }
+            setTimeout(function () { pointer.requesting = false; }, 2000);
+          }, wait);
+        },
+        declined: function (error) {
+          if (!this.requesting) { return; }
+          this.requesting = false;
+          captureStatus.textContent = 'Mouse capture declined' + (error && error.message ? ': ' + error.message : '. Click to retry.');
+        }
+      };
+      canvas.addEventListener('mousedown', function (event) {
+        if (pointer.sceneActive && !pointer.paused && document.pointerLockElement !== canvas) {
+          // The click acquires capture; it must not also fire or pick a menu item.
+          event.preventDefault(); event.stopImmediatePropagation(); pointer.request();
+        }
+      }, true);
+      canvas.addEventListener('contextmenu', function (event) { event.preventDefault(); });
+      document.addEventListener('pointerlockchange', function () {
+        var locked = document.pointerLockElement === canvas;
+        if (locked) { pointer.pauseRequested = false; }
+        else if (pointer.locked && pointer.sceneActive && !pointer.paused) { pointer.pauseRequested = true; pointer.clearMouse(); }
+        if (!locked) { pointer.unlockedAt = performance.now(); }
+        pointer.locked = locked; pointer.requesting = false; pointer.updateHint();
+      });
+      document.addEventListener('pointerlockerror', function () { pointer.declined(); });
+      window.addEventListener('blur', function () { pointer.lostFocus(); });
+      document.addEventListener('visibilitychange', function () { if (document.hidden) { pointer.lostFocus(); } });
+      $('resume').onclick = function () {
+        if (pointer.titleMenu) { pointer.titleMenu = false; syncMenu(); return; }
+        // Resuming never depends on mouse capture; the lock follows when the browser allows it.
+        pointer.resumeRequested = true; pointer.request();
+      };
+
+      // Controls dialog, and focused menu controls, swallow keys so the game never sees them.
+      var controlsDialog = $('controls');
+      document.querySelectorAll('[data-controls]').forEach(function (button) { button.onclick = function () { controlsDialog.showModal(); }; });
+      $('controls-close').onclick = function () { controlsDialog.close(); };
+      ['keydown', 'keyup', 'keypress'].forEach(function (type) {
+        window.addEventListener(type, function (event) {
+          if (menu.hidden && !controlsDialog.open) { return; }
+          var inMenu = event.target instanceof Element && event.target.closest('#menu') && event.key !== 'Escape';
+          if (!controlsDialog.open && !inMenu) { return; }
+          if (type === 'keydown' && controlsDialog.open && event.key === 'Escape') { controlsDialog.close(); event.preventDefault(); }
+          event.stopImmediatePropagation();
+        }, true);
+      });
+      controlsDialog.addEventListener('close', function () { if (started) { canvas.focus(); } });
+
+      // ---- Saves: the game writes its native campaign save file; a copy is kept in localStorage. ----
+      var STORE_KEY = 'sf-campaign-save', SAVE_DIR = '/sf_save_transfer', SAVE_FILE = SAVE_DIR + '/export.sav';
+      var restoring = false;
+      Module['sfSaveTransfer'] = {
+        updated: function () {
+          if (restoring) { return; }
+          try {
+            Module['FS'].mkdirTree(SAVE_DIR);
+            if (_sf_export_save() !== 1) { return; }
+            var bytes = Module['FS'].readFile(SAVE_FILE), text = '';
+            for (var i = 0; i < bytes.length; i++) { text += String.fromCharCode(bytes[i]); }
+            localStorage.setItem(STORE_KEY, btoa(text));
+          } catch (error) { console.warn('save not persisted', error); }
+        }
+      };
+      function restoreSave() {
+        restoring = true;
+        try {
+          var text = atob(localStorage.getItem(STORE_KEY) || '');
+          if (!text) { return; }
+          var bytes = new Uint8Array(text.length);
+          for (var i = 0; i < text.length; i++) { bytes[i] = text.charCodeAt(i); }
+          Module['FS'].mkdirTree(SAVE_DIR);
+          Module['FS'].writeFile(SAVE_DIR + '/import.sav', bytes);
+          if (_sf_import_save() !== 1) { localStorage.removeItem(STORE_KEY); }
+        } catch (error) { console.warn('save not restored', error); }
+        finally { restoring = false; }
+      }
+      function enableControls(enabled) {
+        ['files', 'boot'].forEach(function (id) { $(id).disabled = !enabled; });
+      }
+
+      window.addEventListener('error', function (event) {
+        if (started && event.error instanceof WebAssembly.RuntimeError) {
+          sfSetStatus('Session stopped. Reload to retry.', 'error'); pointer.setScene(false, false);
+        }
+      });
+
+      // ---- Disc selection and staging ----
+      // Files may be picked together or one at a time; each lands on its CUE or BIN line.
+      // The CUE names the BIN files it needs, so the page can show which one is missing.
+      var cueFile = null, cueRefs = null, binFiles = [];
+      function isCue(file) { return /\.cue$/i.test(file.name); }
+      function cueReferences(text) {
+        var names = [], pattern = /^\s*FILE\s+(?:"([^"]+)"|(\S+))/gim, match;
+        while ((match = pattern.exec(text))) { names.push(match[1] || match[2]); }
+        return names.filter(function (name, index) { return names.indexOf(name) === index; });
+      }
+      function binFor(name) {
+        return binFiles.find(function (file) { return file.name.toLowerCase() === name.toLowerCase(); });
+      }
+      // Files to stage, named as the CUE expects, or null while the selection is incomplete.
+      function discEntries() {
+        if (!cueFile) { return null; }
+        var entries = [{name: cueFile.name, file: cueFile}];
+        if (cueRefs) {
+          for (var name of cueRefs) {
+            var bin = binFor(name);
+            if (!bin) { return null; }
+            entries.push({name: name, file: bin});
+          }
+        } else if (binFiles.length) {
+          binFiles.forEach(function (file) { entries.push({name: file.name, file: file}); });
+        } else { return null; }
+        return entries;
+      }
+      function renderDisc() {
+        var box = $('files-name');
+        box.textContent = '';
+        function line(label, name, present) {
+          var tag = document.createElement('b'), text = document.createElement('span');
+          tag.textContent = label; text.textContent = name || '-'; text.title = name || '';
+          if (present) { text.className = 'set'; }
+          box.append(tag, text);
+        }
+        line('CUE', cueFile && cueFile.name, !!cueFile);
+        if (cueRefs) {
+          cueRefs.forEach(function (name) { var bin = binFor(name); line('BIN', bin ? bin.name : name, !!bin); });
+        } else if (binFiles.length) {
+          binFiles.forEach(function (file) { line('BIN', file.name, true); });
+        } else { line('BIN'); }
+        if (!busy && !started) { sfSetStatus(discPrompt(), 'ready'); }
+      }
+      function discPrompt() {
+        if (discEntries()) { return 'Ready.'; }
+        if (!cueFile) { return binFiles.length ? 'Select the CUE file.' : 'Select the CUE and BIN files.'; }
+        return cueRefs && cueRefs.length > 1 ? 'Select the BIN files.' : 'Select the BIN file.';
+      }
+      async function addFiles(list) {
+        for (var file of list) {
+          if (isCue(file)) {
+            cueFile = file;
+            try { cueRefs = cueReferences(await file.text()); } catch (error) { cueRefs = []; }
+            if (!cueRefs.length) { cueRefs = null; }
+          } else {
+            binFiles = binFiles.filter(function (known) { return known.name !== file.name; }).concat(file);
+          }
+        }
+        renderDisc();
+      }
+      $('files').onchange = function () {
+        var picked = Array.from(this.files);
+        this.value = '';
+        addFiles(picked);
+      };
+      renderDisc();
+      function clearStage() {
+        stagedFiles = []; Module['FS'].mkdirTree('/sf_disc');
+        Module['FS'].readdir('/sf_disc').forEach(function (name) { if (name !== '.' && name !== '..') { Module['FS'].unlink('/sf_disc/' + name); } });
+      }
+      function alreadyStaged(entries) {
+        return entries.length === stagedFiles.length && entries.every(function (entry, index) {
+          return entry.name === stagedFiles[index].name && entry.file === stagedFiles[index].file;
+        });
+      }
+      async function stageFiles(entries) {
+        clearStage();
+        try {
+          for (var entry of entries) {
+            sfSetStatus('Reading ' + entry.name + '…', 'busy');
+            Module['FS'].writeFile('/sf_disc/' + entry.name, new Uint8Array(await entry.file.arrayBuffer()), {canOwn: true});
+          }
+          stagedFiles = entries;
+        } catch (error) { clearStage(); throw error; }
+      }
+      async function launch() {
+        if (busy || started) { return; }
+        var entries = discEntries();
+        if (!entries) { sfSetStatus(discPrompt(), 'ready'); return; }
+        busy = true; enableControls(false); progress.hidden = false;
+        try {
+          if (!alreadyStaged(entries)) { await stageFiles(entries); }
+          sfSetStatus('Starting…', 'busy');
+          await new Promise(function (resolve) { requestAnimationFrame(function () { setTimeout(resolve, 0); }); });
+          started = _sf_boot_game() === 1;
+          $('statusbar').dataset.phase = started ? 'ready' : 'error';
+        } catch (error) { console.error(error); sfSetStatus('Could not start.', 'error'); }
+        finally {
+          busy = false; progress.hidden = true; enableControls(!started);
+          syncMenu();
+        }
+      }
+      $('boot').onclick = launch;
+      restoreSave();
+      enableControls(true); sfSetStatus(discPrompt(), 'ready');
+    }
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

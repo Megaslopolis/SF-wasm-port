@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
+#include <optional>
 
 struct PADRAW;
 
@@ -68,12 +69,20 @@ public:
       ControllerButtonBindings controller_bindings = {},
       bool controller_vibration = true,
       ControllerSettingsCommitCallback controller_settings_commit = {},
-      bool mission_skyboxes = true) noexcept
-      : input_(input), cheats_(cheats), difficulty_(difficulty),
-        controller_bindings_(controller_bindings),
-        controller_vibration_(controller_vibration),
-        controller_settings_commit_(controller_settings_commit),
-        mission_skyboxes_(mission_skyboxes) {}
+      bool mission_skyboxes = true) noexcept;
+
+  // Starts (or restarts) a mission view. Replaces any previous session, so
+  // the viewer object itself stays reusable across missions.
+  void begin(const game::MissionPackage &mission,
+             std::uint16_t previous_buttons,
+             const std::filesystem::path &cue_path,
+             std::uint32_t maximum_unlocked_mission,
+             std::unique_ptr<game::GameplaySession> preloaded_gameplay = {},
+             std::unique_ptr<PsyCrossAudioOutput> preloaded_audio = {});
+
+  // Presents at most one frame. Resolves to a result when the mission ends,
+  // returns to the title, or selects another mission.
+  [[nodiscard]] std::optional<SceneViewerResult> poll(PADRAW &pad);
 
   [[nodiscard]] SceneViewerResult
   run(const game::MissionPackage &mission, PADRAW &pad,
@@ -82,7 +91,14 @@ public:
       std::unique_ptr<game::GameplaySession> preloaded_gameplay = {},
       std::unique_ptr<PsyCrossAudioOutput> preloaded_audio = {});
 
+  ~PsyCrossSceneViewer();
+
 private:
+  // Pollable per-run state. Rebuilt by every begin(); the viewer holds only
+  // cross-mission configuration. Declared here, defined in the runtime
+  // translation unit where the renderer types are complete.
+  struct Session;
+  std::unique_ptr<Session> session_;
   KeyboardMouseBindings input_;
   game::RetailCheatState &cheats_;
   game::CampaignDifficulty difficulty_{game::CampaignDifficulty::original};

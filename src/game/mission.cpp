@@ -5,6 +5,7 @@
 #include "sf/game/game_disc.hpp"
 #include "sf/game/localization.hpp"
 
+#include <algorithm>
 #include <array>
 #include <numeric>
 #include <string>

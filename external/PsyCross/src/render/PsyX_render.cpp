@@ -461,7 +461,7 @@ void PsyX_DestroyVolumetrics();
 void PsyX_DestroyObjectShadows();
 }
 
-#if defined(RENDERER_OGL)
+#if defined(RENDERER_OGL) || (defined(RENDERER_OGLES) && OGLES_VERSION >= 3)
 static GLenum g_nativeDepthInternalFormat = GL_DEPTH32F_STENCIL8;
 
 static void PsyX_AllocateNativeDepthTexture(GLenum internalFormat, int width,
@@ -834,7 +834,7 @@ void GR_Shutdown() {
   glDeleteRenderbuffers(1, &g_glNativeMultisampleColorRenderbuffer);
   glDeleteRenderbuffers(1, &g_glNativeMultisampleDepthRenderbuffer);
   glDeleteTextures(1, &g_glNativeColorTexture);
-#if defined(RENDERER_OGL)
+#if defined(RENDERER_OGL) || (defined(RENDERER_OGLES) && OGLES_VERSION >= 3)
   glDeleteTextures(1, &g_glNativeDepthTexture);
 #endif
 
@@ -1558,23 +1558,20 @@ int GR_Shader_CheckProgramStatus(GLuint program) {
 
 ShaderID GR_Shader_Compile(const char *source, int isPsxShader) {
 #if defined(ES2_SHADERS)
-  const char *GLSL_HEADER_VERT = R"(
-		#version 100
+  const char *GLSL_HEADER_VERT = R"(#version 100
 		precision lowp  int;
 		precision highp float;
 		#define FLAT
 	)";
 
-  const char *GLSL_HEADER_FRAG = R"(
-		#version 100
+  const char *GLSL_HEADER_FRAG = R"(#version 100
 		precision lowp  int;
 		precision highp float;
 		#define FLAT
 		#define fragColor gl_FragColor
 	)";
 #elif defined(ES3_SHADERS)
-  const char *GLSL_HEADER_VERT = R"(
-		#version 300 es
+  const char *GLSL_HEADER_VERT = R"(#version 300 es
 		precision lowp  int;
 		precision highp float;
 		#define FLAT flat
@@ -1583,8 +1580,7 @@ ShaderID GR_Shader_Compile(const char *source, int isPsxShader) {
 		#define texture2D texture
 	)";
 
-  const char *GLSL_HEADER_FRAG = R"(
-		#version 300 es
+  const char *GLSL_HEADER_FRAG = R"(#version 300 es
 		precision lowp  int;
 		precision highp float;
 		#define FLAT flat
@@ -1593,8 +1589,7 @@ ShaderID GR_Shader_Compile(const char *source, int isPsxShader) {
 		out vec4 fragColor;
 	)";
 #else
-  const char *GLSL_HEADER_VERT = R"(
-		#version 140
+  const char *GLSL_HEADER_VERT = R"(#version 140
 		precision lowp  int;
 		precision highp float;
 		#define FLAT flat
@@ -1603,8 +1598,7 @@ ShaderID GR_Shader_Compile(const char *source, int isPsxShader) {
 		#define texture2D texture
 	)";
 
-  const char *GLSL_HEADER_FRAG = R"(
-		#version 140
+  const char *GLSL_HEADER_FRAG = R"(#version 140
 		precision lowp  int;
 		precision highp float;
 		#define FLAT flat
@@ -1865,7 +1859,7 @@ int GR_InitialisePSX() {
   glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
   glBindTexture(GL_TEXTURE_2D, 0);
   glGenFramebuffers(1, &g_glNativeFramebuffer);
-#if defined(RENDERER_OGL)
+#if defined(RENDERER_OGL) || (defined(RENDERER_OGLES) && OGLES_VERSION >= 3)
   glGenTextures(1, &g_glNativeDepthTexture);
 #else
   glGenRenderbuffers(1, &g_glNativeDepthRenderbuffer);

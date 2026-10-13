@@ -9,9 +9,9 @@
 #include <assert.h>
 #include <AL/al.h>
 #include <AL/alc.h>
-#include <AL/alext.h>
 
 #ifndef __EMSCRIPTEN__
+#include <AL/alext.h>
 #include <AL/efx.h>
 #endif
 
@@ -572,11 +572,13 @@ static void UpdateVoiceSample(SPUALVoice* voice)
 	{
 		loopStart += voice->attr.loop_addr - voice->attr.addr;
 
+#ifdef AL_SOFT_loop_points
 		if (loopStart - 54 > 0 && loopStart + loopLen <= count)
 		{
 			int sampleOffs[] = { loopStart, loopStart + loopLen };
 			alBufferiv(alBuffer, AL_LOOP_POINTS_SOFT, sampleOffs);
 		}
+#endif
 
 		alSourcei(alSource, AL_LOOPING, AL_TRUE);
 	}

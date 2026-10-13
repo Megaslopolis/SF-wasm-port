@@ -27,6 +27,38 @@
         "VCPKG_TARGET_TRIPLET": "x64-windows",
         "SF_ENABLE_PSYCROSS": "ON"
       }
+    },
+    {
+      "name": "wasm",
+      "displayName": "WebAssembly / Emscripten / PsyCross (movies stubbed)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SF_ENABLE_PSYCROSS": "ON",
+        "SF_ENABLE_MEDIA": "OFF",
+        "SF_BUILD_TESTS": "OFF",
+        "SF_BUILD_ROM_PROBES": "OFF",
+        "SF_ENABLE_RELEASE_IPO": "OFF",
+        "SF_WARNINGS_AS_ERRORS": "OFF"
+      }
+    },
+    {
+      "name": "wasm-media",
+      "displayName": "WebAssembly / Emscripten / PsyCross (movies; needs SF_WASM_FFMPEG_ROOT)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm-media",
+      "toolchainFile": "${sourceDir}/cmake/toolchain-emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SF_ENABLE_PSYCROSS": "ON",
+        "SF_ENABLE_MEDIA": "ON",
+        "SF_BUILD_TESTS": "OFF",
+        "SF_BUILD_ROM_PROBES": "OFF",
+        "SF_ENABLE_RELEASE_IPO": "OFF",
+        "SF_WARNINGS_AS_ERRORS": "OFF"
+      }
     }
   ],
   "buildPresets": [
@@ -58,6 +90,24 @@
       "configurePreset": "windows-psycross",
       "configuration": "Release",
       "targets": ["syphon_filter"]
+    },
+    {
+      "name": "wasm-shell",
+      "displayName": "WASM / browser game shell",
+      "configurePreset": "wasm",
+      "targets": ["sf_wasm_shell"]
+    },
+    {
+      "name": "wasm-media-shell",
+      "displayName": "WASM / browser game shell with movies",
+      "configurePreset": "wasm-media",
+      "targets": ["sf_wasm_shell"]
+    },
+    {
+      "name": "wasm-portable",
+      "displayName": "WASM / portable core + sf_tool compile check",
+      "configurePreset": "wasm",
+      "targets": ["sf_tool"]
     }
   ],
   "testPresets": [

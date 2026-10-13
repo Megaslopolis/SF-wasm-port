@@ -4,7 +4,7 @@ if(POLICY CMP0174)
     cmake_policy(SET CMP0174 NEW)
 endif()
 
-project(SyphonFilterPC VERSION 0.1.0 LANGUAGES CXX)
+project(SyphonFilterPC VERSION 0.1.0 LANGUAGES C CXX)
 
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
@@ -13,6 +13,14 @@ option(SF_ENABLE_PSYCROSS "Build the optional PsyCross platform backend" OFF)
 option(SF_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(SF_PARALLEL_COMPILE "Compile independent sources in parallel" ON)
 option(SF_ENABLE_RELEASE_IPO "Enable interprocedural optimization in Release builds" ON)
+if(EMSCRIPTEN)
+    set(_sf_enable_media_default OFF)
+else()
+    set(_sf_enable_media_default ON)
+endif()
+option(SF_ENABLE_MEDIA "Decode movies with FFmpeg (OFF selects a stub reporting unsupported)"
+    ${_sf_enable_media_default})
+unset(_sf_enable_media_default)
 
 if(SF_ENABLE_RELEASE_IPO)
     include(CheckIPOSupported)
@@ -39,6 +47,9 @@ option(SF_BUILD_ROM_PROBES "Build supported-ROM diagnostic probes"
 unset(_sf_rom_probes_default)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+if(EMSCRIPTEN)
+    include(SfWasm)
+endif()
 include(SfWarnings)
 
 add_library(sf_core
@@ -163,10 +174,37 @@ if(SF_ENABLE_PSYCROSS)
         message(FATAL_ERROR "PsyCross was not found at SF_PSYCROSS_ROOT=${SF_PSYCROSS_ROOT}")
     endif()
 
-    find_package(SDL2 CONFIG REQUIRED)
-    find_package(OpenAL CONFIG REQUIRED)
-    find_package(OpenGL REQUIRED)
-    find_package(FFMPEG REQUIRED)
+    if(EMSCRIPTEN)
+        if(SF_ENABLE_MEDIA)
+            # FFmpeg is not an Emscripten port. Point SF_WASM_FFMPEG_ROOT at a
+            # minimal static build (str demuxer, mdec + adpcm_xa decoders)
+            # made with the same SDK: <root>/include and <root>/lib/*.a.
+            set(SF_WASM_FFMPEG_ROOT "" CACHE PATH "Emscripten FFmpeg install prefix")
+            if(NOT EXISTS "${SF_WASM_FFMPEG_ROOT}/lib/libavformat.a")
+                message(FATAL_ERROR
+                    "SF_ENABLE_MEDIA under Emscripten needs SF_WASM_FFMPEG_ROOT "
+                    "(a prefix with lib/libavformat.a). Use -DSF_ENABLE_MEDIA=OFF "
+                    "to omit movies.")
+            endif()
+            set(FFMPEG_INCLUDE_DIRS "${SF_WASM_FFMPEG_ROOT}/include")
+            set(FFMPEG_LIBRARY_DIRS "${SF_WASM_FFMPEG_ROOT}/lib")
+            set(FFMPEG_LIBRARIES)
+            foreach(_lib avformat avcodec swscale swresample avutil)
+                list(APPEND FFMPEG_LIBRARIES "${SF_WASM_FFMPEG_ROOT}/lib/lib${_lib}.a")
+            endforeach()
+        endif()
+    else()
+        find_package(SDL2 CONFIG REQUIRED)
+        find_package(OpenAL CONFIG REQUIRED)
+        find_package(OpenGL REQUIRED)
+        find_package(FFMPEG QUIET)
+        if(NOT FFMPEG_FOUND)
+            # Distribution packages provide pkg-config files, not a CMake package.
+            find_package(PkgConfig REQUIRED)
+            pkg_check_modules(FFMPEG REQUIRED
+                libavformat libavcodec libswscale libswresample libavutil)
+        endif()
+    endif()
 
     # PsyCross links a plain `OpenAL` item. Make that name a real target so the
     # final executable receives vcpkg's correctly named OpenAL32 import library.
@@ -179,16 +217,38 @@ if(SF_ENABLE_PSYCROSS)
     if(MSVC AND SF_PARALLEL_COMPILE)
         target_compile_options(psycross_static PRIVATE /MP)
     endif()
+    if(EMSCRIPTEN)
+        # WebGL2 uses GLES3 contexts and GLSL ES 3.00 shaders.
+        target_compile_definitions(psycross_static PUBLIC RENDERER_OGLES OGLES_VERSION=3)
+        # The compile flag (not just the link flag) must carry -sUSE_SDL=2 so
+        # emcc fetches the SDL2 port headers into its sysroot when compiling
+        # PsyCross sources that include <SDL2/SDL.h> directly.
+        target_compile_options(psycross_static PUBLIC "-sUSE_SDL=2")
+        target_link_options(psycross_static PUBLIC "-sUSE_SDL=2")
+    endif()
 
-    add_library(sf_media
-        src/media/str_decoder.cpp
-    )
+    if(SF_ENABLE_MEDIA)
+        add_library(sf_media
+            src/media/str_decoder.cpp
+        )
+    else()
+        message(STATUS "SF_ENABLE_MEDIA=OFF: movie decoding is stubbed (reports unsupported)")
+        add_library(sf_media
+            src/media/str_decoder_stub.cpp
+        )
+    endif()
     add_library(sf::media ALIAS sf_media)
     target_include_directories(sf_media PUBLIC include)
-    target_include_directories(sf_media SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIRS})
-    target_link_directories(sf_media PRIVATE ${FFMPEG_LIBRARY_DIRS})
+    if(SF_ENABLE_MEDIA)
+        target_include_directories(sf_media SYSTEM PRIVATE ${FFMPEG_INCLUDE_DIRS})
+        target_link_directories(sf_media PRIVATE ${FFMPEG_LIBRARY_DIRS})
+    endif()
     target_compile_features(sf_media PUBLIC cxx_std_20)
-    target_link_libraries(sf_media PRIVATE sf::core ${FFMPEG_LIBRARIES})
+    if(SF_ENABLE_MEDIA)
+        target_link_libraries(sf_media PRIVATE sf::core ${FFMPEG_LIBRARIES})
+    else()
+        target_link_libraries(sf_media PUBLIC sf::core)
+    endif()
     sf_set_project_warnings(sf_media)
 
     add_library(sf_psycross_backend
@@ -197,7 +257,6 @@ if(SF_ENABLE_PSYCROSS)
         src/platform/psycross_host.cpp
         src/platform/psycross_mission_start.cpp
         src/platform/psycross_mission_skybox.cpp
-        src/platform/psycross_movie_player.cpp
         src/platform/psycross_retail_briefing.cpp
         src/platform/psycross_runtime_guards.cpp
         src/platform/psycross_scene_viewer.cpp
@@ -214,6 +273,13 @@ if(SF_ENABLE_PSYCROSS)
         src/platform/psycross_vram.cpp
         src/platform/psycross_window_mode.cpp
     )
+    if(SF_ENABLE_MEDIA)
+        target_sources(sf_psycross_backend PRIVATE
+            src/platform/psycross_movie_player.cpp)
+    else()
+        target_sources(sf_psycross_backend PRIVATE
+            src/platform/psycross_movie_player_stub.cpp)
+    endif()
     add_library(sf::psycross_backend ALIAS sf_psycross_backend)
     target_include_directories(sf_psycross_backend PUBLIC include)
     target_compile_features(sf_psycross_backend PUBLIC cxx_std_20)
@@ -221,6 +287,9 @@ if(SF_ENABLE_PSYCROSS)
         PUBLIC sf::game sf::platform_input
         PRIVATE sf::media psycross_static OpenAL::OpenAL OpenGL::GL SDL2::SDL2)
     sf_set_project_warnings(sf_psycross_backend)
+    if(EMSCRIPTEN)
+        target_compile_options(sf_psycross_backend PRIVATE "-Werror=return-type")
+    endif()
 
     add_executable(syphon_filter
         apps/syphon_filter/launcher/controls_page.cpp
@@ -324,10 +393,44 @@ if(SF_ENABLE_PSYCROSS)
         target_compile_options(syphon_filter PRIVATE /utf-8)
     endif()
     sf_set_project_warnings(syphon_filter)
+    if(EMSCRIPTEN)
+        # Browser builds use sf_wasm_shell below in place of the Win32 UI.
+        sf_target_wasm_executable(syphon_filter)
+    endif()
 
-    add_executable(sf_movie_probe apps/sf_movie_probe/main.cpp)
-    target_link_libraries(sf_movie_probe PRIVATE sf::game sf::media)
-    sf_set_project_warnings(sf_movie_probe)
+    if(SF_ENABLE_MEDIA)
+        add_executable(sf_movie_probe apps/sf_movie_probe/main.cpp)
+        target_link_libraries(sf_movie_probe PRIVATE sf::game sf::media)
+        sf_set_project_warnings(sf_movie_probe)
+    endif()
+
+    if(EMSCRIPTEN)
+        # Browser shell with title boot through a pollable host.
+        # The desktop launcher uses Win32 and cannot join the default build.
+        set_target_properties(syphon_filter PROPERTIES EXCLUDE_FROM_ALL TRUE)
+        add_executable(sf_wasm_shell
+            apps/sf_wasm_shell/main.cpp)
+        target_link_libraries(sf_wasm_shell PRIVATE sf::psycross_backend
+                                                    SDL2::SDL2)
+        sf_target_wasm_executable(sf_wasm_shell)
+        set_property(TARGET sf_wasm_shell APPEND PROPERTY LINK_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/apps/sf_wasm_shell/shell.html")
+        # Mission skybox images are read from the in-memory filesystem.
+        file(GLOB sf_wasm_skyboxes CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/assets/skyboxes/*.bmp")
+        foreach(skybox IN LISTS sf_wasm_skyboxes)
+            get_filename_component(skybox_name "${skybox}" NAME)
+            target_link_options(sf_wasm_shell PRIVATE
+                "--preload-file=${skybox}@/assets/skyboxes/${skybox_name}")
+        endforeach()
+        set_property(TARGET sf_wasm_shell APPEND PROPERTY LINK_DEPENDS
+            ${sf_wasm_skyboxes})
+        target_link_options(sf_wasm_shell PRIVATE
+            "--shell-file=${CMAKE_CURRENT_SOURCE_DIR}/apps/sf_wasm_shell/shell.html"
+            "-sEXPORTED_FUNCTIONS=_main,_sf_boot_game,_sf_import_save,_sf_export_save"
+            "-sEXPORTED_RUNTIME_METHODS=FS")
+        sf_set_project_warnings(sf_wasm_shell)
+    endif()
 endif()
 
 include(SfTests)

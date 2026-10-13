@@ -63,6 +63,9 @@ public:
   Host(const Host &) = delete;
   Host &operator=(const Host &) = delete;
 
+  // Enters the host's frame loop. On desktop this call blocks until the process
+  // exits; under Emscripten it schedules per-frame callbacks with the browser
+  // and returns. The caller must keep the host alive for those callbacks.
   virtual void run() = 0;
 
 protected:

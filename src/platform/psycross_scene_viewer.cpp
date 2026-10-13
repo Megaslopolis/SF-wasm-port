@@ -49,6 +49,10 @@
 #include <psx/libgte.h>
 #include <psx/libpad.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <algorithm>
 #include <array>
 #include <cmath>

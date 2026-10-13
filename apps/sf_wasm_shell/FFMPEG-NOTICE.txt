@@ -1,0 +1,11 @@
+This browser build statically links FFmpeg n7.1.1 (https://ffmpeg.org), licensed
+under the GNU LGPL version 2.1 or later (license text: COPYING.LGPLv2.1 in the
+FFmpeg source). Source: https://github.com/FFmpeg/FFmpeg/tree/n7.1.1
+(archive: https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n7.1.1.tar.gz).
+
+FFmpeg was configured unmodified with:
+  --disable-all --disable-autodetect --disable-asm --disable-network
+  --disable-pthreads --enable-avcodec --enable-avformat --enable-avutil
+  --enable-swscale --enable-swresample --enable-decoder=mdec,adpcm_xa
+  --enable-demuxer=str --target-os=none --arch=x86_32 (emcc, Emscripten 6.0.12)
+It is used only to decode the PlayStation STR movies on the user's own disc.

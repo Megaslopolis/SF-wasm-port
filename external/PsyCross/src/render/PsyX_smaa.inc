@@ -1,4 +1,4 @@
-#if defined(RENDERER_OGL)
+#if defined(RENDERER_OGL) || (defined(RENDERER_OGLES) && OGLES_VERSION >= 3)
 
 #include "smaa/smaa_lookup_data.hpp"
 #include "smaa/smaa_shader_source.hpp"
@@ -34,6 +34,9 @@ struct PsyXSMAAResources {
 PsyXSMAAResources g_smaa;
 
 constexpr const char *kSMAAShaderPrefix = R"PSYX(
+#ifdef GL_ES
+precision highp sampler2D;
+#endif
 #define SMAA_GLSL_3 1
 #define SMAA_PRESET_ULTRA 1
 #define SMAA_PREDICATION 1
@@ -414,7 +417,9 @@ void GR_ApplySceneSMAA(void) {
   const int savedStencilMode = g_PreviousStencilMode;
   const GLboolean savedStencilTest = glIsEnabled(GL_STENCIL_TEST);
   const GLboolean savedScissorTest = glIsEnabled(GL_SCISSOR_TEST);
+#if defined(RENDERER_OGL)
   const GLboolean savedFramebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+#endif
   GLint savedViewport[4] = {};
   glGetIntegerv(GL_VIEWPORT, savedViewport);
 
@@ -425,7 +430,9 @@ void GR_ApplySceneSMAA(void) {
   glDepthMask(GL_FALSE);
   glDisable(GL_STENCIL_TEST);
   glDisable(GL_SCISSOR_TEST);
+#if defined(RENDERER_OGL)
   glDisable(GL_FRAMEBUFFER_SRGB);
+#endif
   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
   glBindVertexArray(g_smaa.vertexArray);
 
@@ -503,10 +510,12 @@ void GR_ApplySceneSMAA(void) {
     glEnable(GL_SCISSOR_TEST);
   else
     glDisable(GL_SCISSOR_TEST);
+#if defined(RENDERER_OGL)
   if (savedFramebufferSrgb)
     glEnable(GL_FRAMEBUFFER_SRGB);
   else
     glDisable(GL_FRAMEBUFFER_SRGB);
+#endif
   if (savedStencilTest)
     glEnable(GL_STENCIL_TEST);
   else

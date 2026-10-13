@@ -1,4 +1,4 @@
-#if defined(RENDERER_OGL)
+#if defined(RENDERER_OGL) || (defined(RENDERER_OGLES) && OGLES_VERSION >= 3)
 
 namespace {
 
@@ -20,6 +20,9 @@ struct PsyXSkyboxResources {
 PsyXSkyboxResources g_skybox;
 
 constexpr const char *kSkyboxShader = R"PSYX(
+#ifdef GL_ES
+precision highp sampler2D;
+#endif
 #ifdef VERTEX
 void main() {
   vec2 position = gl_VertexID == 0 ? vec2(0.0, 0.0)
@@ -192,7 +195,9 @@ void GR_DrawSkybox(TextureID texture, const GrSkyboxView *view) {
   const GLboolean savedStencil = glIsEnabled(GL_STENCIL_TEST);
   const GLboolean savedScissorTest = glIsEnabled(GL_SCISSOR_TEST);
   const GLboolean savedCull = glIsEnabled(GL_CULL_FACE);
+#if defined(RENDERER_OGL)
   const GLboolean savedFramebufferSrgb = glIsEnabled(GL_FRAMEBUFFER_SRGB);
+#endif
 
   glGetIntegerv(GL_CURRENT_PROGRAM, &savedProgram);
   glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &savedVertexArray);
@@ -215,7 +220,9 @@ void GR_DrawSkybox(TextureID texture, const GrSkyboxView *view) {
   glDisable(GL_STENCIL_TEST);
   glDisable(GL_SCISSOR_TEST);
   glDisable(GL_CULL_FACE);
+#if defined(RENDERER_OGL)
   glDisable(GL_FRAMEBUFFER_SRGB);
+#endif
   glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
 
   glUseProgram(g_skybox.program);
@@ -274,10 +281,12 @@ void GR_DrawSkybox(TextureID texture, const GrSkyboxView *view) {
     glEnable(GL_CULL_FACE);
   else
     glDisable(GL_CULL_FACE);
+#if defined(RENDERER_OGL)
   if (savedFramebufferSrgb)
     glEnable(GL_FRAMEBUFFER_SRGB);
   else
     glDisable(GL_FRAMEBUFFER_SRGB);
+#endif
 }
 
 #else

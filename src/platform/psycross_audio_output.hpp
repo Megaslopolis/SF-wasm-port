@@ -4,7 +4,13 @@
 #include "sf/psx/spu.hpp"
 
 #include <AL/al.h>
+
+#ifdef __EMSCRIPTEN__
+#define SF_AL_APIENTRY
+#else
 #include <AL/alext.h>
+#define SF_AL_APIENTRY AL_APIENTRY
+#endif
 
 #include <array>
 #include <atomic>
@@ -54,15 +60,28 @@ public:
   void flush();
   void update();
   void setGainPercent(std::uint8_t percent);
+#ifdef __EMSCRIPTEN__
+  [[nodiscard]] double playbackClockSeconds() const noexcept;
+#endif
   void logDiagnostics(std::string_view context) const noexcept;
   void reset(std::string_view reason = "explicit") noexcept;
 
 private:
-  // 128 stereo frames are 2.9 ms at the native SPU rate. The callback sink
+  // Optional OpenAL Soft entry point; the browser uses the queued sink only.
+  using StreamCallback = ALsizei (SF_AL_APIENTRY *)(ALvoid *, ALvoid *, ALsizei);
+  using BufferCallback = void (SF_AL_APIENTRY *)(ALuint, ALenum, ALsizei,
+                                             StreamCallback, ALvoid *);
+  // Browser audio runs on the same thread as rendering and emulation. Use
+  // longer queued buffers so a brief host stall does not exhaust the source.
+#ifdef __EMSCRIPTEN__
+  static constexpr std::size_t frames_per_buffer = 1024U;
+#else
+  static constexpr std::size_t frames_per_buffer = 128U;
+#endif
+  // Native callback blocks are 2.9 ms at the SPU rate. The callback sink
   // consumes a lock-free jitter ring, while the producer keeps any temporarily
   // unwritten frames in FIFO staging. No generated SPU frame is replaced by a
   // newer frame merely because the renderer or audio device stalled.
-  static constexpr std::size_t frames_per_buffer = 128U;
   static constexpr std::size_t maximum_queued_buffers = 24U;
   static constexpr std::size_t maximum_stream_frames =
       psx::Spu::sample_rate / 2U;
@@ -79,7 +98,7 @@ private:
   void applyGainStep();
   void startIfNeeded();
   [[nodiscard]] std::size_t queuedBufferCount() const;
-  [[nodiscard]] static ALsizei AL_APIENTRY
+  [[nodiscard]] static ALsizei SF_AL_APIENTRY
   streamCallback(ALvoid *user, ALvoid *samples, ALsizei byte_count) noexcept;
   [[nodiscard]] ALsizei fillStream(ALvoid *samples,
                                    ALsizei byte_count) noexcept;
@@ -89,7 +108,7 @@ private:
   PsyCrossAudioStreamKind stream_kind_{PsyCrossAudioStreamKind::continuous};
   ALuint source_{};
   ALuint callback_buffer_{};
-  LPALBUFFERCALLBACKSOFT buffer_callback_{};
+  BufferCallback buffer_callback_{};
   AudioFrameRing<psx::SpuPcmFrame> stream_frames_{maximum_stream_frames};
   std::size_t minimum_start_frames_{};
   std::vector<ALuint> buffers_;

@@ -172,19 +172,13 @@ void emIntrCallback(void* userData)
 
 	int diff = newVBlank - g_psxSysCounters[PsxCounter_VBLANK];
 
-	while (diff--)
+	while (diff-- > 0)
 	{
 		if (vsync_callback)
 			vsync_callback();
 
 		g_psxSysCounters[PsxCounter_VBLANK]++;
 	}
-}
-
-EM_BOOL emIntrCallback2(double time, void* userData)
-{
-	emIntrCallback(userData);
-	return g_stopIntrThread ? EM_FALSE : EM_TRUE;
 }
 
 #endif
@@ -197,14 +191,11 @@ int PsyX_Sys_SetVMode(int mode)
 #ifdef __EMSCRIPTEN__
 	if (old != g_vmode)
 	{
-		// if(g_emIntrInterval != -1)
-		//	emscripten_clear_interval(g_emIntrInterval);
-		g_stopIntrThread = 1;
-
-		emscripten_sleep(100);
-
-		g_stopIntrThread = 0;
-		emscripten_set_timeout_loop(emIntrCallback2, 1.0, NULL);
+		// Timer callbacks run on the browser thread. Cancel the previous
+		// interval directly; no sleep/Asyncify or thread shutdown is needed.
+		if (g_emIntrInterval != -1)
+			emscripten_clear_interval(g_emIntrInterval);
+		g_emIntrInterval = emscripten_set_interval(emIntrCallback, 1.0, NULL);
 	}
 #endif
 
@@ -1171,6 +1162,13 @@ void PsyX_Exit() { exit(0); }
 
 void PsyX_Shutdown()
 {
+#ifdef __EMSCRIPTEN__
+	if (g_emIntrInterval != -1)
+	{
+		emscripten_clear_interval(g_emIntrInterval);
+		g_emIntrInterval = -1;
+	}
+#endif
 	if (!g_window)
 		return;
 

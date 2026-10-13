@@ -13,8 +13,12 @@
 #   define RENDERER_OGLES
 #   define OGLES_VERSION (3)
 #elif defined(__EMSCRIPTEN__)
+#   ifndef RENDERER_OGLES
 #   define RENDERER_OGLES
-#   define OGLES_VERSION (2)
+#   endif
+#   ifndef OGLES_VERSION
+#   define OGLES_VERSION (3)
+#   endif
 #elif defined(__ANDROID__)
 #   define RENDERER_OGLES
 #   define OGLES_VERSION (3)
@@ -101,6 +105,9 @@
 #if defined(RENDERER_OGL)
 #	define VRAM_FORMAT            GL_RG
 #	define VRAM_INTERNAL_FORMAT   GL_RG32F
+#elif defined(RENDERER_OGLES) && OGLES_VERSION >= 3
+#	define VRAM_FORMAT            GL_RG
+#	define VRAM_INTERNAL_FORMAT   GL_RG8
 #elif defined(RENDERER_OGLES)
 #	define VRAM_FORMAT            GL_LUMINANCE_ALPHA
 #	define VRAM_INTERNAL_FORMAT   GL_LUMINANCE_ALPHA
